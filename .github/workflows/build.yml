@@ -14,22 +14,22 @@ jobs:
 
     - name: Ambil Source Kernel
       run: |
-        git clone --depth=1 -b lineage-21.0 [https://github.com/LineageOS/android_kernel_lge_sm8250.git](https://github.com/LineageOS/android_kernel_lge_sm8250.git) kernel-source
+        git clone --depth=1 https://github.com/LineageOS/android_kernel_lge_sm8250.git kernel-source
         
     - name: Ambil Google Clang
       run: |
         mkdir clang
         cd clang
-        curl -LO [https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz)
+        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
         tar -xf clang-r522817.tar.gz
         cd ..
-        git clone --depth=1 [https://android.googlesource.com/platform/prebuilts/gas/linux-x86](https://android.googlesource.com/platform/prebuilts/gas/linux-x86) gcc-gas
+        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gas/linux-x86 gcc-gas
 
     - name: Pasang KernelSU dan SUSFS
       run: |
         cd kernel-source
-        curl -LSs "[https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh](https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh)" | bash -s main
-        git clone [https://gitlab.com/su-repo/susfs4ksu.git](https://gitlab.com/su-repo/susfs4ksu.git)
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+        git clone https://gitlab.com/su-repo/susfs4ksu.git
         cp susfs4ksu/kernel_patches/5.0.y/* ./ 2>/dev/null || true
 
     - name: Masak Kernel
@@ -46,7 +46,7 @@ jobs:
 
     - name: Bungkus Jadi ZIP
       run: |
-        git clone [https://github.com/osm0sis/AnyKernel3.git](https://github.com/osm0sis/AnyKernel3.git)
+        git clone https://github.com/osm0sis/AnyKernel3.git
         cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
         cd AnyKernel3
         sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
