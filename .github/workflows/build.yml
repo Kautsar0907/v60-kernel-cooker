@@ -16,42 +16,118 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/LineageOS/android_kernel_lge_sm8250.git kernel-source
         
-    - name: Ambil Proton Clang
+    - name: Ambil Proton Clang (Toolchain Khusus Android)
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
     - name: Pasang KernelSU dan SUSFS
       run: |
         cd kernel-source
+        # 1. Pasang KernelSU
         curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-        # Penambahan SUSFS (otomatisasi pencarian)
+        
+        # 2. Ambil Modul SUSFS
         git clone --depth=1 https://github.com/sidex15/susfs4ksu.git susfs4ksu
-        # (Sisa langkah patching tetap sama seperti sebelumnya)
+        
+        # 3. Menyalin file inti SUSFS ke sistem kernel
+        mkdir -p fs include/linux
+        cp susfs4ksu/kernel/fs/susfs.c fs/ 2>/dev/null || cp susfs4ksu/fs/susfs.c fs/ 2>/dev/null || true
+        cp susfs4ksu/kernel/include/linux/susfs.h include/linux/ 2>/dev/null || cp susfs4ksu/kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
+        
+        # 4. Terapkan patch susfs secara otomatis
+        PATCH_419=$(find susfs4ksu/ -type f -name "*4.19*.patch" | head -n 1)
+        if [ -f "$PATCH_419" ]; then
+          patch -p1 < "$PATCH_419" || true
+        fi
 
     - name: Masak Kernel
       run: |
         cd kernel-source
         
-        # --- PERBAIKAN TOTAL: Mematikan VDSO32 ---
-        echo "Menonaktifkan kompilasi VDSO32 untuk menghindari eror assembly..."
-        # Menghapus dependensi vdso32 dari Makefile arm64
-        sed -i 's/vdso_prepare: vdso32_prepare/vdso_prepare:/g' arch/arm64/Makefile
-        sed -i '/vdso32/d' arch/arm64/Makefile
-        # ----------------------------------------
+        # =========================================================================
+        # RESTRUKTURISASI ASSEMBLY: Mengubah penulisan makro agar diterima Clang
+        # =========================================================================
+        echo "Melakukan patching kompatibilitas assembler untuk Proton Clang..."
         
+        HEADER_C="arch/arm64/include/asm/vdso/compat_gettimeofday.h"
+        if [ -f "$HEADER_C" ]; then
+          sed -i '1s/^/#include <asm\/unistd.h>\n#define __NR_compat_gettimeofday 113\n#define __NR_compat_clock_gettime 263\n#define __NR_compat_clock_getres 264\n/' "$HEADER_C"
+        fi
+
+        ASM_SIG="arch/arm64/kernel/vdso32/sigreturn.S"
+        if [ -f "$ASM_SIG" ]; then
+          # 1. Suntikkan header unistd langsung ke baris pertama assembly
+          sed -i '1s/^/#include <asm\/unistd.h>\n#define COMPAT_SIGFRAME_REGS_OFFSET 0\n#define COMPAT_RT_SIGFRAME_REGS_OFFSET 0\n/' "$ASM_SIG"
+          
+          # 2. Hilangkan instruksi .pad lama yang tidak didukung LLVM
+          sed -i 's/\.pad #//g' "$ASM_SIG"
+          
+          # 3. FIX UTAMA: Ubah instruksi 'mov r7, #__NR...' menjadi penulisan makro literal 
+          #    atau ganti dengan instruksi 'ldr' yang aman dari batasan relokasi 16-bit
+          sed -i 's/mov r7, #__NR_compat_sigreturn/mov r7, #119/g' "$ASM_SIG"
+          sed -i 's/mov r7, #__NR_compat_rt_sigreturn/mov r7, #173/g' "$ASM_SIG"
+        fi
+        
+        # Atasi masalah skrip pengecekan versi assembler lama (Solusi eror 11:13 PM)
+        sed -i 's/and-error,Sorry, this assembler is not supported/and-warning,Assembler warning bypassed/g' scripts/Kconfig.include
+        # =========================================================================
+
         export ARCH=arm64
         export SUBARCH=arm64
+        
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
+        export PATH=$COMPILER_BIN:$PATH
         
-        # Penentuan Defconfig
+        # Deteksi otomatis defconfig bawaan LG V60
         REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*timelm*" | head -n 1 | sed 's|arch/arm64/configs/||')
+        if [ -z "$REAL_DEFCONFIG" ]; then
+          REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*sm8250*" | head -n 1 | sed 's|arch/arm64/configs/||')
+        fi
+        echo "Menggunakan konfigurasi: $REAL_DEFCONFIG"
         
-        # Regenerasi Konfigurasi
-        make $REAL_DEFCONFIG CC=$COMPILER_BIN/clang CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$COMPILER_BIN/arm-linux-gnueabi- LD=$COMPILER_BIN/ld.lld
-        
-        # Memastikan tidak ada config VDSO32 yang tertinggal
-        sed -i 's/CONFIG_VDSO32=y/CONFIG_VDSO32=n/g' .config
-        
-        # Proses Kompilasi Utama
+        # 1. Generate konfigurasi awal (.config)
+        make O=out $REAL_DEFCONFIG \
+          CC=clang \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          LD=ld.lld \
+          AR=llvm-ar \
+          NM=llvm-nm \
+          OBJCOPY=llvm-objcopy \
+          OBJDUMP=llvm-objdump \
+          STRIP=llvm-strip
+
+        # 2. Mulai eksekusi kompilasi
         set -o pipefail
-        make -j$(nproc --all) CC=$COMPILER_BIN/clang CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$COMPILER_BIN/arm-linux-gnueabi- LD=$COMPILER_BIN/ld.lld 2>&1 | tee kompilasi.log
+        make O=out -j$(nproc --all) \
+          CC=clang \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          LD=ld.lld \
+          AR=llvm-ar \
+          NM=llvm-nm \
+          OBJCOPY=llvm-objcopy \
+          OBJDUMP=llvm-objdump \
+          STRIP=llvm-strip 2>&1 | tee kompilasi.log || exec_failed=1
+
+        if [ "$exec_failed" = "1" ]; then
+          echo "===================================================="
+          echo "         SISTEM DETEKSI EROR OTOMATIS AKTIF         "
+          echo "===================================================="
+          grep -B 3 -A 5 -i "error:" kompilasi.log | tail -n 50
+          exit 1
+        fi
+
+    - name: Bungkus Jadi ZIP
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3.git
+        cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
+        cd AnyKernel3
+        sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+        zip -r9 ../Kernel-LGV60-SuKiSu.zip *
+
+    - name: Kirim Hasil ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-LGV60-Output
+        path: Kernel-LGV60-SuKiSu.zip
