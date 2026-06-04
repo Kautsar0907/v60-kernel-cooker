@@ -61,6 +61,13 @@ jobs:
         
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
         
+        # PENJINAK VDSO: Menyuntikkan deklarasi ID syscall yang hilang akibat ketatnya standarisasi compiler modern
+        echo "Menyuntikkan perbaikan makro sistem VDSO gettimeofday..."
+        TARGET_HEADER="arch/arm64/include/asm/vdso/compat_gettimeofday.h"
+        if [ -f "$TARGET_HEADER" ]; then
+          sed -i '1s/^/#define __NR_compat_gettimeofday 113\n#define __NR_compat_clock_gettime 263\n#define __NR_compat_clock_getres 264\n/' "$TARGET_HEADER"
+        fi
+
         # Menemukan file defconfig LG V60 secara otomatis
         REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*timelm*" | head -n 1 | sed 's|arch/arm64/configs/||')
         if [ -z "$REAL_DEFCONFIG" ]; then
@@ -81,7 +88,6 @@ jobs:
           STRIP=$COMPILER_BIN/llvm-strip
         
         # 2. Proses memasak utama dengan pipa pelacak eror terisolasi
-        # Menggunakan opsi bash agar jika make gagal, skrip penangkap langsung bekerja
         set -o pipefail
         make -j$(nproc --all) \
           CC=$COMPILER_BIN/clang \
@@ -112,7 +118,7 @@ jobs:
         zip -r9 ../Kernel-LGV60-SuKiSu-Ultra.zip *
 
     - name: Kirim Hasil ZIP
-      uses: Actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: Kernel-LGV60-Output
         path: Kernel-LGV60-SuKiSu-Ultra.zip
