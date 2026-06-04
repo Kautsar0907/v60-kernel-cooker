@@ -74,16 +74,25 @@ jobs:
         export LLVM=1
         export LLVM_IAS=1
         
-        # Mengatur konfigurasi bawaan langsung di dalam folder (Tanpa O=out)
-        make vendor/timelm-perf_defconfig
+        # RADAR CONFIG: Mencari file defconfig LG V60 asli secara otomatis di dalam folder
+        cd arch/arm64/configs/
+        REAL_DEFCONFIG=$(find . -type f -name "*timelm*defconfig" | sed 's|^\./||' | head -n 1)
+        cd ../../..
         
-        # Mulai memasak langsung
+        if [ -n "$REAL_DEFCONFIG" ]; then
+          echo "Berhasil menemukan file defconfig: $REAL_DEFCONFIG"
+          make $REAL_DEFCONFIG
+        else
+          echo "Gagal melacak defconfig otomatis, menggunakan metode darurat..."
+          make timelm-perf_defconfig || make timelm_defconfig
+        fi
+        
+        # Mulai proses memasak utama
         make -j$(nproc --all)
 
     - name: Bungkus Jadi ZIP
       run: |
         git clone https://github.com/osm0sis/AnyKernel3.git
-        # Penyesuaian lokasi file hasil masak
         cp kernel-source/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || cp kernel-source/arch/arm64/boot/Image.gz AnyKernel3/
         cd AnyKernel3
         sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
