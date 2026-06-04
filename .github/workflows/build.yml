@@ -1,49 +1,38 @@
-*(Penting: Harus pakai tanda titik di depan kata `github` dan pastikan menggunakan garis miring).*
-
----
-
-## Langkah 3: Tempelkan Teks Resep Masak
-Salin (*copy*) seluruh kode di bawah ini, lalu tempelkan (*paste*) ke dalam kotak editor besar yang sudah disediakan di bawah nama file tadi:
-
-```yaml
-name: Build LG V60 Kernel dengan SuKiSu Ultra
+name: Build LG V60 Kernel
 
 on:
-  workflow_dispatch: # Tombol rahasia untuk menjalankan proses manual
+  workflow_dispatch:
 
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
     steps:
-    - name: Mempersiapkan Sistem Linux Cloud
+    - name: Persiapan Linux
       run: |
         sudo apt-get update
         sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl
 
-    - name: Mengunduh Source Code Kernel LineageOS
+    - name: Ambil Source Kernel
       run: |
-        git clone --depth=1 -b lineage-21.0 https://github.com/LineageOS/android_kernel_lge_sm8250.git kernel-source
+        git clone --depth=1 -b lineage-21.0 [https://github.com/LineageOS/android_kernel_lge_sm8250.git](https://github.com/LineageOS/android_kernel_lge_sm8250.git) kernel-source
         
-    - name: Mengunduh Alat Penerjemah (Google Clang Toolchain)
+    - name: Ambil Google Clang
       run: |
         mkdir clang
         cd clang
-        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
+        curl -LO [https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz)
         tar -xf clang-r522817.tar.gz
         cd ..
-        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gas/linux-x86 gcc-gas
+        git clone --depth=1 [https://android.googlesource.com/platform/prebuilts/gas/linux-x86](https://android.googlesource.com/platform/prebuilts/gas/linux-x86) gcc-gas
 
-    - name: Menyuntikkan Fitur KernelSU & SUSFS
+    - name: Pasang KernelSU dan SUSFS
       run: |
         cd kernel-source
-        # Suntik KernelSU Mainline
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-        
-        # Mengunduh Modul Tambahan SUSFS untuk bypass aplikasi bank
-        git clone https://gitlab.com/su-repo/susfs4ksu.git
+        curl -LSs "[https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh](https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh)" | bash -s main
+        git clone [https://gitlab.com/su-repo/susfs4ksu.git](https://gitlab.com/su-repo/susfs4ksu.git)
         cp susfs4ksu/kernel_patches/5.0.y/* ./ 2>/dev/null || true
 
-    - name: Proses Memasak Kernel
+    - name: Masak Kernel
       run: |
         cd kernel-source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc-gas:$PATH
@@ -52,22 +41,18 @@ jobs:
         export CROSS_COMPILE=aarch64-linux-gnu-
         export CC=clang
         export CLANG_TRIPLE=aarch64-linux-gnu-
-        
-        # Menyiapkan konfigurasi resmi LG V60 (timelm-perf)
         make O=out vendor/timelm-perf_defconfig
-        
-        # Mulai memasak menggunakan seluruh tenaga server cloud
         make -j$(nproc --all) O=out
 
-    - name: Membungkus Hasil Jadi ke File ZIP
+    - name: Bungkus Jadi ZIP
       run: |
-        git clone https://github.com/osm0sis/AnyKernel3.git
+        git clone [https://github.com/osm0sis/AnyKernel3.git](https://github.com/osm0sis/AnyKernel3.git)
         cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ 2>/dev/null || cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
         cd AnyKernel3
         sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
         zip -r9 ../Kernel-LGV60-SuKiSu-Ultra.zip *
 
-    - name: Mengunggah Hasil ZIP agar Bisa Didownload
+    - name: Kirim Hasil ZIP
       uses: actions/upload-artifact@v4
       with:
         name: Kernel-LGV60-Output
