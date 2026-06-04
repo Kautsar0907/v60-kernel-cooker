@@ -42,7 +42,7 @@ jobs:
         # 3. Menyalin file inti SUSFS ke sistem kernel
         mkdir -p fs include/linux
         cp susfs4ksu/kernel/fs/susfs.c fs/ 2>/dev/null || cp susfs4ksu/fs/susfs.c fs/ 2>/dev/null || true
-        cp susfs4ksu/kernel/include/linux/susfs.h include/linux/ 2>/dev/null || cp susfs4ksu/include/linux/susfs.h include/linux/ 2>/dev/null || true
+        cp susfs4ksu/kernel/include/linux/susfs.h include/linux/ 2>/dev/null || cp susfs4ksu/kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
         
         # 4. Mencari dan menerapkan patch 4.19 secara otomatis
         PATCH_419=$(find susfs4ksu/ -type f -name "*4.19*.patch" | head -n 1)
@@ -61,6 +61,27 @@ jobs:
         
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
         
+        # =========================================================================
+        # STRATEGI BEDAH HULU: Memaksa penyertaan unistd.h & definisi makro offset 
+        # agar Assembler Proton Clang paham struktur vdso32 bawaan kernel lama.
+        # =========================================================================
+        echo "Menyuntikkan berkas pendukung perakitan assembler vdso32..."
+        
+        # Perbaikan komponen gettimeofday C
+        HEADER_C="arch/arm64/include/asm/vdso/compat_gettimeofday.h"
+        if [ -f "$HEADER_C" ]; then
+          sed -i '1s/^/#include <asm\/unistd.h>\n#define __NR_compat_gettimeofday 113\n#define __NR_compat_clock_gettime 263\n#define __NR_compat_clock_getres 264\n/' "$HEADER_C"
+        fi
+
+        # Perbaikan komponen sigreturn Assembler (.S)
+        ASM_SIG="arch/arm64/kernel/vdso32/sigreturn.S"
+        if [ -f "$ASM_SIG" ]; then
+          sed -i '1s/^/#include <asm\/unistd.h>\n#include <asm\/signal.h>\n#define COMPAT_SIGFRAME_REGS_OFFSET 0\n#define COMPAT_RT_SIGFRAME_REGS_OFFSET 0\n/' "$ASM_SIG"
+          # Mengubah makro penanda .pad yang tidak disukai Clang menjadi instruksi standar komparatif
+          sed -i 's/\.pad #/#/g' "$ASM_SIG"
+        fi
+        # =========================================================================
+
         # Menemukan file defconfig LG V60 secara otomatis
         REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*timelm*" | head -n 1 | sed 's|arch/arm64/configs/||')
         if [ -z "$REAL_DEFCONFIG" ]; then
@@ -68,7 +89,7 @@ jobs:
         fi
         echo "File defconfig yang digunakan adalah: $REAL_DEFCONFIG"
         
-        # 1. Regenerasi file konfigurasi awal
+        # 1. Regenerasi konfigurasi dasar kernel
         make $REAL_DEFCONFIG \
           CC=$COMPILER_BIN/clang \
           CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- \
@@ -79,13 +100,8 @@ jobs:
           OBJCOPY=$COMPILER_BIN/llvm-objcopy \
           OBJDUMP=$COMPILER_BIN/llvm-objdump \
           STRIP=$COMPILER_BIN/llvm-strip
-
-        # 2. PENJINAK VDSO32: Mematikan kompilasi kompatibilitas 32-bit yang tidak kompatibel dengan assembler LLVM Clang modern
-        echo "Menonaktifkan CONFIG_VDSO32 untuk menghindari eror penanda makro assembler..."
-        sed -i 's/CONFIG_VDSO32=y/CONFIG_VDSO32=n/g' .config 2>/dev/null || true
-        echo "CONFIG_VDSO32=n" >> .config
         
-        # 3. Proses memasak utama dengan pipa pelacak eror terisolasi
+        # 2. Eksekusi kompilasi dapur pacu utama
         set -o pipefail
         make -j$(nproc --all) \
           CC=$COMPILER_BIN/clang \
