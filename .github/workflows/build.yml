@@ -62,23 +62,16 @@ jobs:
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
         
         # =========================================================================
-        # STRATEGI BEDAH HULU: Memaksa penyertaan unistd.h & definisi makro offset 
-        # agar Assembler Proton Clang paham struktur vdso32 bawaan kernel lama.
+        # STRATEGI PAMUNGKAS: Mematikan kompilasi kompilator VDSO32 dari Makefile
+        # Ini menghentikan siklus error berantai pada assembler Proton Clang.
         # =========================================================================
-        echo "Menyuntikkan berkas pendukung perakitan assembler vdso32..."
+        echo "Menonaktifkan subsistem vdso32 dari struktur kompilasi..."
         
-        # Perbaikan komponen gettimeofday C
-        HEADER_C="arch/arm64/include/asm/vdso/compat_gettimeofday.h"
-        if [ -f "$HEADER_C" ]; then
-          sed -i '1s/^/#include <asm\/unistd.h>\n#define __NR_compat_gettimeofday 113\n#define __NR_compat_clock_gettime 263\n#define __NR_compat_clock_getres 264\n/' "$HEADER_C"
-        fi
-
-        # Perbaikan komponen sigreturn Assembler (.S)
-        ASM_SIG="arch/arm64/kernel/vdso32/sigreturn.S"
-        if [ -f "$ASM_SIG" ]; then
-          sed -i '1s/^/#include <asm\/unistd.h>\n#include <asm\/signal.h>\n#define COMPAT_SIGFRAME_REGS_OFFSET 0\n#define COMPAT_RT_SIGFRAME_REGS_OFFSET 0\n/' "$ASM_SIG"
-          # Mengubah makro penanda .pad yang tidak disukai Clang menjadi instruksi standar komparatif
-          sed -i 's/\.pad #/#/g' "$ASM_SIG"
+        # Memotong jalur instruksi pembuatan objek vdso32 di Makefile utama arm64
+        MAKEFILE_ARM64="arch/arm64/Makefile"
+        if [ -f "$MAKEFILE_ARM64" ]; then
+          sed -i 's/vdso_prepare: vdso32_prepare/vdso_prepare:/g' "$MAKEFILE_ARM64"
+          sed -i 's/core-y\t\t+= arch\/arm64\/kernel\/vdso32\//# core-y\t\t+= arch\/arm64\/kernel\/vdso32\//g' "$MAKEFILE_ARM64"
         fi
         # =========================================================================
 
@@ -100,6 +93,10 @@ jobs:
           OBJCOPY=$COMPILER_BIN/llvm-objcopy \
           OBJDUMP=$COMPILER_BIN/llvm-objdump \
           STRIP=$COMPILER_BIN/llvm-strip
+        
+        # Tambahan pengaman pasca defconfig untuk meyakinkan sistem tidak menyentuh VDSO32
+        echo "CONFIG_VDSO32=n" >> .config
+        echo "# CONFIG_COMPAT_VDSO is not set" >> .config
         
         # 2. Eksekusi kompilasi dapur pacu utama
         set -o pipefail
