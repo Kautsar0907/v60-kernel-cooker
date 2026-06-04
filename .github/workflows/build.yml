@@ -56,16 +56,24 @@ jobs:
       run: |
         cd kernel-source
         
-        # Mengubungkan jalur Proton Clang ke sistem utama
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
         
-        # Menyiapkan konfigurasi bawaan dengan melemparkan variabel compiler langsung ke dalam make
-        make vendor/timelm-perf_defconfig CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+        # JALUR MANDIRI: Menentukan lokasi alat masak tanpa merusak PATH sistem utama.
+        # Ini memaksa Ubuntu menggunakan linker aslinya yang modern untuk membuat tools lokal.
+        COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
+        
+        # Membuat file konfigurasi bawaan LG V60
+        make vendor/timelm-perf_defconfig \
+          CC=$COMPILER_BIN/clang \
+          CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=$COMPILER_BIN/arm-linux-gnueabi-
         
         # Mulai proses memasak utama secara menyeluruh
-        make -j$(nproc --all) CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+        make -j$(nproc --all) \
+          CC=$COMPILER_BIN/clang \
+          CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=$COMPILER_BIN/arm-linux-gnueabi-
 
     - name: Bungkus Jadi ZIP
       run: |
