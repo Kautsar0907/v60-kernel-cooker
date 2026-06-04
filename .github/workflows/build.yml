@@ -61,13 +61,6 @@ jobs:
         
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
         
-        # PENJINAK VDSO: Menyuntikkan deklarasi ID syscall yang hilang akibat ketatnya standarisasi compiler modern
-        echo "Menyuntikkan perbaikan makro sistem VDSO gettimeofday..."
-        TARGET_HEADER="arch/arm64/include/asm/vdso/compat_gettimeofday.h"
-        if [ -f "$TARGET_HEADER" ]; then
-          sed -i '1s/^/#define __NR_compat_gettimeofday 113\n#define __NR_compat_clock_gettime 263\n#define __NR_compat_clock_getres 264\n/' "$TARGET_HEADER"
-        fi
-
         # Menemukan file defconfig LG V60 secara otomatis
         REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*timelm*" | head -n 1 | sed 's|arch/arm64/configs/||')
         if [ -z "$REAL_DEFCONFIG" ]; then
@@ -75,7 +68,7 @@ jobs:
         fi
         echo "File defconfig yang digunakan adalah: $REAL_DEFCONFIG"
         
-        # 1. Regenerasi file konfigurasi dengan ekosistem LLVM lengkap
+        # 1. Regenerasi file konfigurasi awal
         make $REAL_DEFCONFIG \
           CC=$COMPILER_BIN/clang \
           CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- \
@@ -86,8 +79,13 @@ jobs:
           OBJCOPY=$COMPILER_BIN/llvm-objcopy \
           OBJDUMP=$COMPILER_BIN/llvm-objdump \
           STRIP=$COMPILER_BIN/llvm-strip
+
+        # 2. PENJINAK VDSO32: Mematikan kompilasi kompatibilitas 32-bit yang tidak kompatibel dengan assembler LLVM Clang modern
+        echo "Menonaktifkan CONFIG_VDSO32 untuk menghindari eror penanda makro assembler..."
+        sed -i 's/CONFIG_VDSO32=y/CONFIG_VDSO32=n/g' .config 2>/dev/null || true
+        echo "CONFIG_VDSO32=n" >> .config
         
-        # 2. Proses memasak utama dengan pipa pelacak eror terisolasi
+        # 3. Proses memasak utama dengan pipa pelacak eror terisolasi
         set -o pipefail
         make -j$(nproc --all) \
           CC=$COMPILER_BIN/clang \
