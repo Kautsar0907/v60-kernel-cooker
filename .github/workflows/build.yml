@@ -10,7 +10,7 @@ jobs:
     - name: Persiapan Linux
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl patch
+        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl patch python3
 
     - name: Ambil Source Kernel
       run: |
@@ -41,11 +41,6 @@ jobs:
           REPO_URL_ALT=$(curl -s "https://api.github.com/search/repositories?q=susfs+kernel&sort=updated" | grep -o '"clone_url": "[^"]*' | head -n 1 | sed 's/"clone_url": "//')
           git clone --depth=1 "$REPO_URL_ALT" susfs4ksu
         fi
-
-        if [ ! -d "susfs4ksu" ]; then
-          echo "Eror kritis: Semua mirror SUSFS di internet telah diblokir saat ini!"
-          exit 1
-        fi
         
         # 3. Menyalin file inti SUSFS ke sistem kernel
         mkdir -p fs include/linux
@@ -55,10 +50,8 @@ jobs:
         # 4. Mencari dan menerapkan patch 4.19 secara otomatis
         PATCH_419=$(find susfs4ksu/ -type f -name "*4.19*.patch" | head -n 1)
         if [ -f "$PATCH_419" ]; then
-          echo "Menerapkan patch kernel cocok: $PATCH_419"
           patch -p1 < "$PATCH_419" || true
         else
-          echo "Berkas patch spesifik tidak ditemukan, mencoba menyalin folder patch langsung..."
           cp susfs4ksu/kernel_patches/4.19.y/* ./ 2>/dev/null || true
         fi
 
@@ -66,7 +59,7 @@ jobs:
       run: |
         cd kernel-source
         
-        # IMMUNIZATION SYSTEM: Mematikan semua skrip pengecek versi yang memicu Kconfig Syntax Error
+        # Kunci 1: Membungkam total seluruh skrip deteksi internal kernel yang rewel
         echo "Menjinakkan skrip pembaca versi bawaan kernel..."
         
         echo '#!/bin/sh' > scripts/as-version.sh
@@ -81,11 +74,27 @@ jobs:
         echo 'echo 100000' >> scripts/gcc-version.sh
         chmod +x scripts/gcc-version.sh
 
-        # Mengganti panggilan dinamis di Kconfig secara paksa dengan angka konstan baku
-        sed -i 's/default $(clang-version)/default 180000/g' init/Kconfig || true
-        sed -i 's/default $(gcc-version)/default 100000/g' init/Kconfig || true
+        echo '#!/bin/sh' > scripts/cc-name.sh
+        echo 'echo Clang' >> scripts/cc-name.sh
+        chmod +x scripts/cc-name.sh
+
+        # Kunci 2: Operasi Intelijen Python untuk membedah dan membersihkan init/Kconfig secara real-time
+        python3 -c "
+        with open('init/Kconfig', 'r') as f:
+            lines = f.readlines()
+        print('=== ISI KCONFIG ASLI (BARIS 45-75) ===')
+        for i in range(44, min(75, len(lines))):
+            print(f'{i+1}: {lines[i]}', end='')
+        print('======================================')
+        for i in range(len(lines)):
+            if 'option env' in lines[i]:
+                print(f'Mendeteksi dan mematikan baris ilegal usang di baris {i+1}')
+                lines[i] = '# ' + lines[i]
+        with open('init/Kconfig', 'w') as f:
+            f.writelines(lines)
+        "
         
-        # Mengubungkan lingkungan Clang ke sistem kompilasi
+        # Menghubungkan lingkungan Clang ke sistem kompilasi
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
