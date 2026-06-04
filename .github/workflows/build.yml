@@ -10,7 +10,7 @@ jobs:
     - name: Persiapan Linux
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl
+        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl patch
 
     - name: Ambil Source Kernel
       run: |
@@ -28,9 +28,16 @@ jobs:
     - name: Pasang KernelSU dan SUSFS
       run: |
         cd kernel-source
+        # 1. Pasang KernelSU
         curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-        git clone https://gitlab.com/su-repo/susfs4ksu.git
-        cp susfs4ksu/kernel_patches/5.0.y/* ./ 2>/dev/null || true
+        
+        # 2. Pasang SUSFS menggunakan GitHub Mirror (Bypass GitLab Login)
+        git clone --depth=1 https://github.com/ashsc/susfs4ksu.git
+        cp susfs4ksu/kernel/fs/susfs.c fs/
+        cp susfs4ksu/kernel/include/linux/susfs.h include/linux/
+        
+        # 3. Terapkan Patch SUSFS Khusus Kernel 4.19
+        patch -p1 < susfs4ksu/kernel_patches/4.19.y/50_add_susfs_in_kernel-4.19.y.patch || true
 
     - name: Masak Kernel
       run: |
