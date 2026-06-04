@@ -59,12 +59,21 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         
-        # JALUR MANDIRI: Menentukan lokasi alat masak tanpa merusak PATH sistem utama.
-        # Ini memaksa Ubuntu menggunakan linker aslinya yang modern untuk membuat tools lokal.
         COMPILER_BIN=$GITHUB_WORKSPACE/clang/bin
         
-        # Membuat file konfigurasi bawaan LG V60
-        make vendor/timelm-perf_defconfig \
+        # RADAR CONFIG: Menyisir folder secara otomatis untuk mencari file defconfig LG V60 yang asli
+        echo "Mencari file defconfig asli untuk LG V60..."
+        REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*timelm*" | head -n 1 | sed 's|arch/arm64/configs/||')
+        
+        if [ -z "$REAL_DEFCONFIG" ]; then
+          echo "Tidak menemukan nama timelm, mencari nama alternatif lge/sm8250..."
+          REAL_DEFCONFIG=$(find arch/arm64/configs/ -name "*sm8250*" | head -n 1 | sed 's|arch/arm64/configs/||')
+        fi
+        
+        echo "Radar Berhasil! File defconfig yang digunakan adalah: $REAL_DEFCONFIG"
+        
+        # Membuat file konfigurasi bawaan lewat deteksi radar
+        make $REAL_DEFCONFIG \
           CC=$COMPILER_BIN/clang \
           CROSS_COMPILE=$COMPILER_BIN/aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=$COMPILER_BIN/arm-linux-gnueabi-
