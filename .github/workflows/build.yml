@@ -10,18 +10,15 @@ jobs:
     - name: Persiapan Linux
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache crossbuild-essential-arm64 git zip unzip curl patch python3
+        sudo apt-get install -y bc build-essential libelf-dev libssl-dev binfmt-support ccache zip unzip curl patch
 
     - name: Ambil Source Kernel
       run: |
         git clone --depth=1 https://github.com/LineageOS/android_kernel_lge_sm8250.git kernel-source
         
-    - name: Ambil Google Clang
+    - name: Ambil Proton Clang (Toolchain Khusus Android)
       run: |
-        mkdir clang
-        cd clang
-        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
-        tar -xf clang-r522817.tar.gz
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
     - name: Pasang KernelSU dan SUSFS (Sistem Live Radar)
       run: |
@@ -59,56 +56,16 @@ jobs:
       run: |
         cd kernel-source
         
-        # Kunci 1: Membungkam total seluruh skrip deteksi internal kernel yang rewel
-        echo "Menjinakkan skrip pembaca versi bawaan kernel..."
-        
-        echo '#!/bin/sh' > scripts/as-version.sh
-        echo 'echo 24000' >> scripts/as-version.sh
-        chmod +x scripts/as-version.sh
-        
-        echo '#!/bin/sh' > scripts/clang-version.sh
-        echo 'echo 180000' >> scripts/clang-version.sh
-        chmod +x scripts/clang-version.sh
-
-        echo '#!/bin/sh' > scripts/gcc-version.sh
-        echo 'echo 100000' >> scripts/gcc-version.sh
-        chmod +x scripts/gcc-version.sh
-
-        echo '#!/bin/sh' > scripts/cc-name.sh
-        echo 'echo Clang' >> scripts/cc-name.sh
-        chmod +x scripts/cc-name.sh
-
-        # Kunci 2: Operasi Intelijen Python untuk membedah dan membersihkan init/Kconfig secara real-time
-        python3 -c "
-        with open('init/Kconfig', 'r') as f:
-            lines = f.readlines()
-        print('=== ISI KCONFIG ASLI (BARIS 45-75) ===')
-        for i in range(44, min(75, len(lines))):
-            print(f'{i+1}: {lines[i]}', end='')
-        print('======================================')
-        for i in range(len(lines)):
-            if 'option env' in lines[i]:
-                print(f'Mendeteksi dan mematikan baris ilegal usang di baris {i+1}')
-                lines[i] = '# ' + lines[i]
-        with open('init/Kconfig', 'w') as f:
-            f.writelines(lines)
-        "
-        
-        # Menghubungkan lingkungan Clang ke sistem kompilasi
+        # Mengubungkan jalur Proton Clang ke sistem utama
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
-        export CC=clang
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export LLVM=1
-        export LLVM_IAS=1
         
-        # Membuat file konfigurasi utama
-        make vendor/timelm-perf_defconfig
+        # Menyiapkan konfigurasi bawaan dengan melemparkan variabel compiler langsung ke dalam make
+        make vendor/timelm-perf_defconfig CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
         
-        # Mulai proses memasak utama
-        make -j$(nproc --all)
+        # Mulai proses memasak utama secara menyeluruh
+        make -j$(nproc --all) CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
     - name: Bungkus Jadi ZIP
       run: |
