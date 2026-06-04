@@ -16,12 +16,14 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/LineageOS/android_kernel_lge_sm8250.git kernel-source
         
-    - name: Ambil Google Clang
+    - name: Ambil Google Clang & Assembler
       run: |
         mkdir clang
         cd clang
         curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
         tar -xf clang-r522817.tar.gz
+        cd ..
+        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gas/linux-x86 gcc-gas
 
     - name: Pasang KernelSU dan SUSFS (Sistem Live Radar)
       run: |
@@ -65,26 +67,23 @@ jobs:
     - name: Masak Kernel
       run: |
         cd kernel-source
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        # Menghubungkan jalur Clang dan Assembler GNU
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$GITHUB_WORKSPACE/gcc-gas:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=aarch64-linux-gnu-
-        export LLVM=1
-        export LLVM_IAS=1
         
-        # RADAR CONFIG: Mencari file defconfig LG V60 asli secara otomatis di dalam folder
-        cd arch/arm64/configs/
-        REAL_DEFCONFIG=$(find . -type f -name "*timelm*defconfig" | sed 's|^\./||' | head -n 1)
-        cd ../../..
+        # RADAR CONFIG: Mencari file dengan jalur folder lengkap relatif (Mencegah eror Can't find)
+        REAL_DEFCONFIG=$(find arch/arm64/configs/ -type f -name "*timelm*defconfig" | sed 's|arch/arm64/configs/||' | head -n 1)
         
         if [ -n "$REAL_DEFCONFIG" ]; then
-          echo "Berhasil menemukan file defconfig: $REAL_DEFCONFIG"
+          echo "Berhasil menemukan konfigurasi di jalur: $REAL_DEFCONFIG"
           make $REAL_DEFCONFIG
         else
-          echo "Gagal melacak defconfig otomatis, menggunakan metode darurat..."
-          make timelm-perf_defconfig || make timelm_defconfig
+          echo "Menggunakan konfigurasi jalur vendor standar..."
+          make vendor/timelm-perf_defconfig
         fi
         
         # Mulai proses memasak utama
